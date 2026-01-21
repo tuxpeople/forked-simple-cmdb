@@ -115,6 +115,9 @@ python demo_data.py
 
 The CMDB provides REST APIs for integration:
 
+> **Auth (optional):** If `API_TOKENS` is set, `/api/*` requires a token via
+> `Authorization: Bearer <token>` or `X-API-Key: <token>`.
+
 ```bash
 # Get statistics
 curl http://localhost:5000/api/stats
@@ -165,6 +168,9 @@ The CMDB uses SQLite with the following main tables:
 
 Environment variables:
 - `FLASK_ENV` - Set to 'production' for production use
+- `FLASK_DEBUG` - Enable Flask debug mode (`true`/`1`/`yes`)
+- `SECRET_KEY` - Flask session secret (set in production)
+- `API_TOKENS` - Comma-separated API tokens; enables auth on `/api/*`
 - `DATABASE_PATH` - Custom database location (default: cmdb.db)
 - `PORT` - Web server port (default: 5000)
 

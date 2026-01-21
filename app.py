@@ -18,10 +18,55 @@ import csv
 import io
 
 app = Flask(__name__)
-app.config['SECRET_KEY'] = 'cmdb-secret-key-change-in-production'
+app.config['SECRET_KEY'] = os.environ.get(
+    'SECRET_KEY',
+    'dev-secret-change-me'
+)
 
 # Database setup
-DB_PATH = 'cmdb.db'
+DB_PATH = os.environ.get('DATABASE_PATH', 'cmdb.db')
+API_TOKENS = {
+    token.strip()
+    for token in os.environ.get('API_TOKENS', '').split(',')
+    if token.strip()
+}
+
+def _get_json():
+    if not request.is_json:
+        return None, (jsonify({'success': False, 'error': 'Expected JSON body'}), 400)
+    data = request.get_json(silent=True)
+    if data is None:
+        return None, (jsonify({'success': False, 'error': 'Invalid JSON body'}), 400)
+    return data, None
+
+def _require_fields(data, fields):
+    missing = [field for field in fields if data.get(field) is None]
+    if missing:
+        return (
+            jsonify({
+                'success': False,
+                'error': f"Missing required fields: {', '.join(missing)}"
+            }),
+            400
+        )
+    return None
+
+def _extract_api_token():
+    auth_header = request.headers.get('Authorization', '')
+    if auth_header.lower().startswith('bearer '):
+        return auth_header[7:].strip()
+    return request.headers.get('X-API-Key', '').strip()
+
+@app.before_request
+def _enforce_api_token():
+    if not request.path.startswith('/api/'):
+        return None
+    if not API_TOKENS:
+        return None
+    token = _extract_api_token()
+    if token not in API_TOKENS:
+        return jsonify({'success': False, 'error': 'Unauthorized'}), 401
+    return None
 
 def init_db():
     """Initialize the CMDB database"""
@@ -385,9 +430,19 @@ def discover_local():
 
         # Insert or update server
         c.execute('''
-            INSERT OR REPLACE INTO servers
+            INSERT INTO servers
             (hostname, ip_address, os_type, os_version, cpu_cores, memory_gb, disk_gb, last_seen, status)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active')
+            ON CONFLICT(hostname) DO UPDATE SET
+                ip_address = excluded.ip_address,
+                os_type = excluded.os_type,
+                os_version = excluded.os_version,
+                cpu_cores = excluded.cpu_cores,
+                memory_gb = excluded.memory_gb,
+                disk_gb = excluded.disk_gb,
+                last_seen = excluded.last_seen,
+                status = 'active',
+                updated_at = CURRENT_TIMESTAMP
         ''', (
             hostname, ip_address, system_info['os_type'],
             system_info['os_version'][:50] if system_info['os_version'] else 'Unknown',
@@ -395,7 +450,7 @@ def discover_local():
             system_info['disk_gb'], datetime.now()
         ))
 
-        server_id = c.lastrowid if c.lastrowid else c.execute(
+        server_id = c.execute(
             'SELECT id FROM servers WHERE hostname = ?', (hostname,)
         ).fetchone()[0]
 
@@ -427,7 +482,12 @@ def discover_local():
 @app.route('/api/server/add', methods=['POST'])
 def add_server():
     """Add a new server"""
-    data = request.json
+    data, error = _get_json()
+    if error:
+        return error
+    missing = _require_fields(data, ['hostname'])
+    if missing:
+        return missing
 
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
@@ -458,7 +518,9 @@ def add_server():
 @app.route('/api/server/<int:server_id>', methods=['PUT'])
 def update_server(server_id):
     """Update server information"""
-    data = request.json
+    data, error = _get_json()
+    if error:
+        return error
 
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
@@ -512,7 +574,12 @@ def delete_server(server_id):
 @app.route('/api/application/add', methods=['POST'])
 def add_application():
     """Add a new application"""
-    data = request.json
+    data, error = _get_json()
+    if error:
+        return error
+    missing = _require_fields(data, ['name'])
+    if missing:
+        return missing
 
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
@@ -543,7 +610,9 @@ def add_application():
 @app.route('/api/application/<int:app_id>', methods=['PUT'])
 def update_application(app_id):
     """Update application information"""
-    data = request.json
+    data, error = _get_json()
+    if error:
+        return error
 
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
@@ -597,7 +666,12 @@ def delete_application(app_id):
 @app.route('/api/service/add', methods=['POST'])
 def add_service():
     """Add a new service"""
-    data = request.json
+    data, error = _get_json()
+    if error:
+        return error
+    missing = _require_fields(data, ['server_id', 'service_name'])
+    if missing:
+        return missing
 
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
@@ -626,7 +700,9 @@ def add_service():
 @app.route('/api/service/<int:service_id>', methods=['PUT'])
 def update_service(service_id):
     """Update service information"""
-    data = request.json
+    data, error = _get_json()
+    if error:
+        return error
 
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
@@ -680,7 +756,12 @@ def delete_service(service_id):
 @app.route('/api/dependency/add', methods=['POST'])
 def add_dependency():
     """Add a service dependency"""
-    data = request.json
+    data, error = _get_json()
+    if error:
+        return error
+    missing = _require_fields(data, ['source_service_id', 'target_service_id'])
+    if missing:
+        return missing
 
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
@@ -845,8 +926,6 @@ if __name__ == '__main__':
     init_db()
 
     port = int(os.environ.get('PORT', 5000))
-    # Check if running in Docker
-    if os.environ.get('DOCKER_CONTAINER'):
-        app.run(host='0.0.0.0', port=port, debug=False)
-    else:
-        app.run(host='0.0.0.0', port=port, debug=True)
+    debug_env = os.environ.get('FLASK_DEBUG', '').lower()
+    debug = debug_env in {'1', 'true', 'yes', 'on'}
+    app.run(host='0.0.0.0', port=port, debug=debug)
