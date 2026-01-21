@@ -586,6 +586,21 @@ def delete_server(server_id):
     finally:
         conn.close()
 
+@app.route('/api/applications', methods=['GET'])
+def get_applications():
+    """Get all applications"""
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    c = conn.cursor()
+
+    applications = c.execute('SELECT * FROM applications ORDER BY name').fetchall()
+    conn.close()
+
+    return jsonify({
+        'success': True,
+        'applications': [dict(a) for a in applications]
+    })
+
 @app.route('/api/application/add', methods=['POST'])
 def add_application():
     """Add a new application"""
@@ -677,6 +692,21 @@ def delete_application(app_id):
         return jsonify({'success': False, 'error': str(e)}), 500
     finally:
         conn.close()
+
+@app.route('/api/services', methods=['GET'])
+def get_services():
+    """Get all services"""
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    c = conn.cursor()
+
+    services = c.execute('SELECT * FROM services ORDER BY service_name').fetchall()
+    conn.close()
+
+    return jsonify({
+        'success': True,
+        'services': [dict(s) for s in services]
+    })
 
 @app.route('/api/service/add', methods=['POST'])
 def add_service():
