@@ -1,5 +1,7 @@
 # Simple CMDB - Configuration Management Database
 
+> This fork keeps local changes on the `custom` branch for easy rebasing on upstream `main`.
+
 A lightweight, SQLite-based CMDB (Configuration Management Database) with a web interface for tracking servers, applications, services, and their dependencies.
 
 ## Features
