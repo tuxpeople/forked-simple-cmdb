@@ -479,6 +479,21 @@ def discover_local():
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
+@app.route('/api/servers', methods=['GET'])
+def get_servers():
+    """Get all servers"""
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    c = conn.cursor()
+
+    servers = c.execute('SELECT * FROM servers ORDER BY hostname').fetchall()
+    conn.close()
+
+    return jsonify({
+        'success': True,
+        'servers': [dict(s) for s in servers]
+    })
+
 @app.route('/api/server/add', methods=['POST'])
 def add_server():
     """Add a new server"""
