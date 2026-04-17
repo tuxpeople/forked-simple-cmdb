@@ -132,9 +132,20 @@ curl -X POST http://localhost:5000/api/server/add \
   -H "Content-Type: application/json" \
   -d '{"hostname": "web01", "ip_address": "192.168.1.10"}'
 
+# Create or update server by hostname
+curl -X POST http://localhost:5000/api/server/upsert \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $API_TOKEN" \
+  -d '{"hostname": "web01", "ip_address": "192.168.1.10", "environment": "production"}'
+
 # Export data
 curl http://localhost:5000/api/export/servers > servers.csv
 ```
+
+`/api/server/upsert` uses `hostname` as the stable natural key. Repeating the
+same payload is idempotent and returns `success`, `server_id`, and `action`
+(`created` or `updated`). On updates, omitted optional server fields are left
+unchanged; include a field with `null` to clear it.
 
 ## Discovery Scripts
 

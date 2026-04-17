@@ -51,6 +51,22 @@ def _require_fields(data, fields):
         )
     return None
 
+SERVER_FIELDS = [
+    'hostname',
+    'ip_address',
+    'os_type',
+    'os_version',
+    'cpu_cores',
+    'memory_gb',
+    'disk_gb',
+    'environment',
+    'status',
+    'location',
+    'owner',
+    'notes',
+    'last_seen',
+]
+
 def _extract_api_token():
     auth_header = request.headers.get('Authorization', '')
     if auth_header.lower().startswith('bearer '):
@@ -525,6 +541,94 @@ def add_server():
 
     except sqlite3.IntegrityError:
         return jsonify({'success': False, 'error': 'Server already exists'}), 400
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+    finally:
+        conn.close()
+
+@app.route('/api/server/upsert', methods=['POST'])
+def upsert_server():
+    """Create or update a server by stable natural key."""
+    data, error = _get_json()
+    if error:
+        return error
+    missing = _require_fields(data, ['hostname'])
+    if missing:
+        return missing
+
+    hostname = data['hostname']
+    fields = [field for field in SERVER_FIELDS if field in data]
+
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+
+    def _update_existing_server(server_id):
+        update_fields = [field for field in fields if field != 'hostname']
+        if update_fields:
+            assignments = ', '.join([f'{field} = ?' for field in update_fields])
+            values = [data.get(field) for field in update_fields]
+            values.append(server_id)
+            c.execute(
+                f'''
+                    UPDATE servers SET
+                        {assignments},
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE id = ?
+                ''',
+                values
+            )
+
+    try:
+        existing = c.execute(
+            'SELECT id FROM servers WHERE hostname = ?',
+            (hostname,)
+        ).fetchone()
+
+        if existing is None:
+            insert_fields = fields or ['hostname']
+            placeholders = ', '.join(['?'] * len(insert_fields))
+            columns = ', '.join(insert_fields)
+            values = [data.get(field) for field in insert_fields]
+            c.execute(
+                f'INSERT INTO servers ({columns}) VALUES ({placeholders})',
+                values
+            )
+            conn.commit()
+            return jsonify({
+                'success': True,
+                'server_id': c.lastrowid,
+                'action': 'created',
+                'created': True,
+                'updated': False
+            })
+
+        _update_existing_server(existing[0])
+        conn.commit()
+
+        return jsonify({
+            'success': True,
+            'server_id': existing[0],
+            'action': 'updated',
+            'created': False,
+            'updated': True
+        })
+
+    except sqlite3.IntegrityError:
+        existing = c.execute(
+            'SELECT id FROM servers WHERE hostname = ?',
+            (hostname,)
+        ).fetchone()
+        if existing is None:
+            return jsonify({'success': False, 'error': 'Server already exists'}), 400
+        _update_existing_server(existing[0])
+        conn.commit()
+        return jsonify({
+            'success': True,
+            'server_id': existing[0],
+            'action': 'updated',
+            'created': False,
+            'updated': True
+        })
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
     finally:
