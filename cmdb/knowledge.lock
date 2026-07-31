@@ -5,3 +5,10 @@ generated_by: manual-fix
 generated_at: 2026-07-31
 contracts_passed: [CT-108, CT-109]
 drift: none
+last_regeneration:
+  at: 2026-07-31
+  model: claude-fable-5
+  result: pass
+  contracts_passed: 9
+  contracts_total: 9
+  guesses: 19
