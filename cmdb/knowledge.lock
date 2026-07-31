@@ -1,0 +1,7 @@
+module: cmdb
+stack: python
+knowledge_version: 60ac5e4
+generated_by: manual-fix
+generated_at: 2026-07-31
+contracts_passed: [CT-108, CT-109]
+drift: none
