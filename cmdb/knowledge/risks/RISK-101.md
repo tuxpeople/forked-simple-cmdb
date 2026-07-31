@@ -2,7 +2,7 @@
 id: RISK-101
 type: risk
 title: No authentication on destructive endpoints
-status: draft
+status: active
 since: 2026-07-31
 likelihood: high
 impact: high

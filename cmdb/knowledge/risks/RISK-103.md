@@ -2,7 +2,7 @@
 id: RISK-103
 type: risk
 title: Hardcoded placeholder SECRET_KEY
-status: draft
+status: active
 since: 2026-07-31
 likelihood: low
 impact: low
