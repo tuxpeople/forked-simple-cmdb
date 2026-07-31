@@ -1,8 +1,10 @@
 # The authoritative interface contract for the cmdb module (REP-0002).
 # Mined from app.py on 2026-07-31; every shape below was read from the code,
-# not designed. Oddities (200-for-create, mixed error envelopes, a dead
-# endpoint) are recorded as built, because regeneration must reproduce the
-# wire, not improve it. The table in overview.md is a human summary of this
+# not designed. Oddities (200-for-create, mixed error envelopes) are
+# recorded as built, because regeneration must reproduce the wire, not
+# improve it. Updated 2026-07-31 on fix/mined-defects: history works
+# (ISS-101), foreign keys are enforced (ISS-102), and PUT is a partial
+# update (BR-109). The table in overview.md is a human summary of this
 # file; where the two disagree, this file wins.
 openapi: 3.0.3
 info:
@@ -99,12 +101,13 @@ paths:
 
   /api/server/{server_id}:
     put:
-      summary: Replace a server's editable fields
+      summary: Update a server's editable fields (partial)
       description: >
-        Full replacement, not a patch: every field below is written from
-        the body, so omitted fields become null (ASM-101). Omitting
-        hostname 500s on the NOT NULL constraint. cpu_cores, memory_gb,
-        disk_gb, last_seen are not editable here.
+        Partial update (BR-109, CT-108): only fields present in the body
+        are written; omitted fields keep their values and can never be
+        nulled by omission. Unknown keys are ignored. updated_at always
+        advances. cpu_cores, memory_gb, disk_gb, last_seen are not
+        editable here.
       parameters:
         - { name: server_id, in: path, required: true, schema: { type: integer } }
       requestBody:
@@ -145,9 +148,10 @@ paths:
     delete:
       summary: Hard-delete a server
       description: >
-        Removes the row only. Services, dependencies, and history that
-        reference it are NOT cleaned up despite the schema's declared
-        cascades (ISS-102, BR-108).
+        Removes the row, and with foreign keys enforced since the ISS-102
+        fix the declared cascades run: the server's services and history
+        rows are deleted, and dependencies of those services cascade with
+        them (BR-108, ASM-104).
       parameters:
         - { name: server_id, in: path, required: true, schema: { type: integer } }
       responses:
@@ -218,8 +222,10 @@ paths:
 
   /api/application/{app_id}:
     put:
-      summary: Replace an application's editable fields
-      description: Full replacement; omitted fields become null (ASM-101).
+      summary: Update an application's editable fields (partial)
+      description: >
+        Partial update (BR-109, CT-108): only fields present in the body
+        are written; omitted fields keep their values.
       parameters:
         - { name: app_id, in: path, required: true, schema: { type: integer } }
       requestBody:
@@ -258,8 +264,9 @@ paths:
     delete:
       summary: Hard-delete an application
       description: >
-        services.application_id is NOT nulled out despite the declared
-        ON DELETE SET NULL (ISS-102).
+        With foreign keys enforced since the ISS-102 fix, the declared
+        ON DELETE SET NULL runs: services.application_id is nulled out
+        for services that referenced the deleted application.
       parameters:
         - { name: app_id, in: path, required: true, schema: { type: integer } }
       responses:
@@ -286,9 +293,11 @@ paths:
     post:
       summary: Add a service
       description: >
-        server_id is required by the code (KeyError -> 500 if absent) but
-        its existence is not checked: a dangling server_id is accepted
-        (ISS-102). No duplicate detection of any kind.
+        server_id is required by the code (KeyError -> 500 if absent),
+        and with foreign keys enforced since the ISS-102 fix a
+        nonexistent server_id or application_id is rejected: the insert
+        fails and surfaces as 500 with error "FOREIGN KEY constraint
+        failed". No duplicate detection of any kind.
       requestBody:
         required: true
         content:
@@ -324,10 +333,11 @@ paths:
 
   /api/service/{service_id}:
     put:
-      summary: Replace a service's editable fields
+      summary: Update a service's editable fields (partial)
       description: >
-        Full replacement; omitted fields become null (ASM-101).
-        server_id and application_id cannot be changed here.
+        Partial update (BR-109, CT-108): only fields present in the body
+        are written; omitted fields keep their values. server_id and
+        application_id cannot be changed here.
       parameters:
         - { name: service_id, in: path, required: true, schema: { type: integer } }
       requestBody:
@@ -392,11 +402,12 @@ paths:
     post:
       summary: Add a directed dependency between two services
       description: >
-        Neither service id is validated to exist; self-dependencies and
-        duplicates are accepted (ISS-102). port and protocol columns exist
-        on the table but are not settable here. Uniquely among the create
-        endpoints, no id is returned. There is no update or delete
-        endpoint for dependencies.
+        With foreign keys enforced since the ISS-102 fix, a nonexistent
+        service id on either side is rejected (500, "FOREIGN KEY
+        constraint failed"); self-dependencies and duplicates are still
+        accepted. port and protocol columns exist on the table but are
+        not settable here. Uniquely among the create endpoints, no id is
+        returned. There is no update or delete endpoint for dependencies.
       requestBody:
         required: true
         content:
@@ -472,16 +483,14 @@ paths:
 
   /api/discovery/history:
     get:
-      summary: Last 20 discovery runs (currently broken)
+      summary: Last 20 discovery runs
       description: >
-        As built this endpoint ALWAYS returns 500: it orders by a column
-        (created_at) that does not exist on discovery_history (ISS-101).
-        The 200 shape below is the inferred intent, mined from the code
-        around the defect, and has never been observed working. Fixing the
-        column name to discovered_at would produce it.
+        Returns the 20 most recent discovery_history rows, newest first,
+        ordered by discovered_at. Broken as originally built (ISS-101,
+        fixed 2026-07-31); CT-109 contracts the 200 shape.
       responses:
         '200':
-          description: Intended shape; unreachable until ISS-101 is fixed
+          description: Recent discovery runs, possibly an empty list
           content:
             application/json:
               schema:
@@ -501,11 +510,6 @@ paths:
                           type: string
                           description: JSON blob, serialised as a string
                         discovered_at: { type: string }
-        '500':
-          description: Current behaviour, on every request (Flask error page or debugger, not JSON)
-          content:
-            text/html:
-              schema: { type: string }
 
   /api/export/{table}:
     get:
