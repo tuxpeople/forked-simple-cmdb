@@ -22,3 +22,9 @@ The README's quick start is exactly this exposed configuration.
 Confidence: high for the facts; likelihood medium because it requires a
 reachable network position, which ASM-102 says should not exist but
 nothing prevents.
+
+Mitigation implemented 2026-07-31 in fix/mined-defects: debug is now
+opt-in via FLASK_DEBUG (default off) and the app binds 127.0.0.1 unless
+CMDB_HOST is set explicitly; Docker sets CMDB_HOST=0.0.0.0. The risk
+stays active because FLASK_DEBUG=1 with CMDB_HOST=0.0.0.0 still
+reproduces the exposed configuration, and nothing prevents setting both.

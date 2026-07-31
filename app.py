@@ -21,12 +21,23 @@ app = Flask(__name__)
 app.config['SECRET_KEY'] = 'cmdb-secret-key-change-in-production'
 
 # Database setup
-DB_PATH = 'cmdb.db'
+DB_PATH = os.environ.get('CMDB_DB', 'cmdb.db')
+
+def get_db():
+    """Open a database connection.
+
+    Enables SQLite foreign key enforcement on every connection (ISS-102):
+    without PRAGMA foreign_keys = ON the ON DELETE CASCADE / SET NULL
+    clauses declared in the schema are inert.
+    """
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    conn.execute('PRAGMA foreign_keys = ON')
+    return conn
 
 def init_db():
     """Initialize the CMDB database"""
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
+    conn = get_db()
     c = conn.cursor()
 
     # Servers table
@@ -125,8 +136,7 @@ def init_db():
 @app.route('/')
 def index():
     """Main dashboard"""
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
+    conn = get_db()
     c = conn.cursor()
 
     # Get statistics
@@ -151,8 +161,7 @@ def index():
 @app.route('/servers')
 def servers():
     """List all servers"""
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
+    conn = get_db()
     c = conn.cursor()
 
     servers = c.execute('SELECT * FROM servers ORDER BY hostname').fetchall()
@@ -163,8 +172,7 @@ def servers():
 @app.route('/server/<int:server_id>')
 def server_detail(server_id):
     """Server details page"""
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
+    conn = get_db()
     c = conn.cursor()
 
     server = c.execute('SELECT * FROM servers WHERE id = ?', (server_id,)).fetchone()
@@ -183,8 +191,7 @@ def server_detail(server_id):
 @app.route('/applications')
 def applications():
     """List all applications"""
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
+    conn = get_db()
     c = conn.cursor()
 
     apps = c.execute('SELECT * FROM applications ORDER BY name').fetchall()
@@ -195,8 +202,7 @@ def applications():
 @app.route('/application/<int:app_id>')
 def application_detail(app_id):
     """Application detail page"""
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
+    conn = get_db()
     c = conn.cursor()
 
     # Get application details
@@ -221,8 +227,7 @@ def application_detail(app_id):
 @app.route('/services')
 def services():
     """List all services with their relationships"""
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
+    conn = get_db()
     c = conn.cursor()
 
     services_list = c.execute('''
@@ -240,8 +245,7 @@ def services():
 @app.route('/service/<int:service_id>')
 def service_detail(service_id):
     """Service detail page"""
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
+    conn = get_db()
     c = conn.cursor()
 
     # Get service details with server and application info
@@ -282,8 +286,7 @@ def service_detail(service_id):
 @app.route('/dependencies')
 def dependencies():
     """Show service dependencies"""
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
+    conn = get_db()
     c = conn.cursor()
 
     # Get all dependencies with service names
@@ -380,7 +383,7 @@ def discover_local():
                 })
 
         # Store in database
-        conn = sqlite3.connect(DB_PATH)
+        conn = get_db()
         c = conn.cursor()
 
         # Insert or update server
@@ -429,7 +432,7 @@ def add_server():
     """Add a new server"""
     data = request.json
 
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_db()
     c = conn.cursor()
 
     try:
@@ -457,25 +460,28 @@ def add_server():
 
 @app.route('/api/server/<int:server_id>', methods=['PUT'])
 def update_server(server_id):
-    """Update server information"""
-    data = request.json
+    """Update server information.
 
-    conn = sqlite3.connect(DB_PATH)
+    Partial update (BR-109): only fields present in the request body are
+    written; omitted fields keep their existing values.
+    """
+    data = request.json or {}
+
+    conn = get_db()
     c = conn.cursor()
 
     try:
-        c.execute('''
-            UPDATE servers SET
-                hostname = ?, ip_address = ?, os_type = ?, os_version = ?,
-                environment = ?, status = ?, owner = ?, location = ?, notes = ?,
-                updated_at = CURRENT_TIMESTAMP
-            WHERE id = ?
-        ''', (
-            data.get('hostname'), data.get('ip_address'), data.get('os_type'),
-            data.get('os_version'), data.get('environment'), data.get('status'),
-            data.get('owner'), data.get('location'), data.get('notes'),
-            server_id
-        ))
+        allowed = ['hostname', 'ip_address', 'os_type', 'os_version',
+                   'environment', 'status', 'owner', 'location', 'notes']
+        updates = {field: data[field] for field in allowed if field in data}
+
+        set_clause = ', '.join(
+            [f'{field} = ?' for field in updates] + ['updated_at = CURRENT_TIMESTAMP']
+        )
+        c.execute(
+            f'UPDATE servers SET {set_clause} WHERE id = ?',
+            (*updates.values(), server_id)
+        )
 
         conn.commit()
 
@@ -492,7 +498,7 @@ def update_server(server_id):
 @app.route('/api/server/<int:server_id>', methods=['DELETE'])
 def delete_server(server_id):
     """Delete a server"""
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_db()
     c = conn.cursor()
 
     try:
@@ -514,7 +520,7 @@ def add_application():
     """Add a new application"""
     data = request.json
 
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_db()
     c = conn.cursor()
 
     try:
@@ -542,25 +548,28 @@ def add_application():
 
 @app.route('/api/application/<int:app_id>', methods=['PUT'])
 def update_application(app_id):
-    """Update application information"""
-    data = request.json
+    """Update application information.
 
-    conn = sqlite3.connect(DB_PATH)
+    Partial update (BR-109): only fields present in the request body are
+    written; omitted fields keep their existing values.
+    """
+    data = request.json or {}
+
+    conn = get_db()
     c = conn.cursor()
 
     try:
-        c.execute('''
-            UPDATE applications SET
-                name = ?, version = ?, type = ?, language = ?,
-                criticality = ?, owner = ?, notes = ?,
-                updated_at = CURRENT_TIMESTAMP
-            WHERE id = ?
-        ''', (
-            data.get('name'), data.get('version'), data.get('type'),
-            data.get('language'), data.get('criticality'),
-            data.get('owner'), data.get('notes'),
-            app_id
-        ))
+        allowed = ['name', 'version', 'type', 'language',
+                   'criticality', 'owner', 'notes']
+        updates = {field: data[field] for field in allowed if field in data}
+
+        set_clause = ', '.join(
+            [f'{field} = ?' for field in updates] + ['updated_at = CURRENT_TIMESTAMP']
+        )
+        c.execute(
+            f'UPDATE applications SET {set_clause} WHERE id = ?',
+            (*updates.values(), app_id)
+        )
 
         conn.commit()
 
@@ -577,7 +586,7 @@ def update_application(app_id):
 @app.route('/api/application/<int:app_id>', methods=['DELETE'])
 def delete_application(app_id):
     """Delete an application"""
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_db()
     c = conn.cursor()
 
     try:
@@ -599,7 +608,7 @@ def add_service():
     """Add a new service"""
     data = request.json
 
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_db()
     c = conn.cursor()
 
     try:
@@ -625,25 +634,28 @@ def add_service():
 
 @app.route('/api/service/<int:service_id>', methods=['PUT'])
 def update_service(service_id):
-    """Update service information"""
-    data = request.json
+    """Update service information.
 
-    conn = sqlite3.connect(DB_PATH)
+    Partial update (BR-109): only fields present in the request body are
+    written; omitted fields keep their existing values.
+    """
+    data = request.json or {}
+
+    conn = get_db()
     c = conn.cursor()
 
     try:
-        c.execute('''
-            UPDATE services SET
-                service_name = ?, port = ?, protocol = ?, status = ?,
-                process_name = ?, start_command = ?, config_file = ?, log_file = ?,
-                updated_at = CURRENT_TIMESTAMP
-            WHERE id = ?
-        ''', (
-            data.get('service_name'), data.get('port'), data.get('protocol'),
-            data.get('status'), data.get('process_name'), data.get('start_command'),
-            data.get('config_file'), data.get('log_file'),
-            service_id
-        ))
+        allowed = ['service_name', 'port', 'protocol', 'status',
+                   'process_name', 'start_command', 'config_file', 'log_file']
+        updates = {field: data[field] for field in allowed if field in data}
+
+        set_clause = ', '.join(
+            [f'{field} = ?' for field in updates] + ['updated_at = CURRENT_TIMESTAMP']
+        )
+        c.execute(
+            f'UPDATE services SET {set_clause} WHERE id = ?',
+            (*updates.values(), service_id)
+        )
 
         conn.commit()
 
@@ -660,7 +672,7 @@ def update_service(service_id):
 @app.route('/api/service/<int:service_id>', methods=['DELETE'])
 def delete_service(service_id):
     """Delete a service"""
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_db()
     c = conn.cursor()
 
     try:
@@ -682,7 +694,7 @@ def add_dependency():
     """Add a service dependency"""
     data = request.json
 
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_db()
     c = conn.cursor()
 
     try:
@@ -707,8 +719,7 @@ def add_dependency():
 @app.route('/api/stats')
 def api_stats():
     """Get CMDB statistics"""
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
+    conn = get_db()
     c = conn.cursor()
 
     stats = {
@@ -738,13 +749,12 @@ def api_stats():
 @app.route('/api/discovery/history')
 def discovery_history():
     """Get discovery history"""
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
+    conn = get_db()
     c = conn.cursor()
 
     history = c.execute('''
         SELECT * FROM discovery_history
-        ORDER BY created_at DESC
+        ORDER BY discovered_at DESC
         LIMIT 20
     ''').fetchall()
 
@@ -760,8 +770,7 @@ def export_table(table):
     if table not in ['servers', 'applications', 'services', 'dependencies']:
         return jsonify({'error': 'Invalid table'}), 400
 
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
+    conn = get_db()
     c = conn.cursor()
 
     rows = c.execute(f'SELECT * FROM {table}').fetchall()
@@ -798,7 +807,7 @@ def import_table(table):
     stream = io.StringIO(file.stream.read().decode("UTF8"), newline=None)
     csv_reader = csv.DictReader(stream)
 
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_db()
     c = conn.cursor()
 
     imported = 0
@@ -845,8 +854,9 @@ if __name__ == '__main__':
     init_db()
 
     port = int(os.environ.get('PORT', 5000))
-    # Check if running in Docker
-    if os.environ.get('DOCKER_CONTAINER'):
-        app.run(host='0.0.0.0', port=port, debug=False)
-    else:
-        app.run(host='0.0.0.0', port=port, debug=True)
+    # Debug is opt-in via FLASK_DEBUG, never the default (RISK-102): the
+    # Werkzeug debugger allows code execution from the browser. Bind to
+    # loopback unless CMDB_HOST is set explicitly (e.g. 0.0.0.0 in Docker).
+    debug = os.environ.get('FLASK_DEBUG', '').lower() in ('1', 'true', 'yes', 'on')
+    host = os.environ.get('CMDB_HOST', '127.0.0.1')
+    app.run(host=host, port=port, debug=debug)

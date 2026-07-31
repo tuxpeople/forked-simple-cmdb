@@ -41,17 +41,17 @@ for the exceptions.
 |---|---|---|
 | POST | `/api/discover/local` | Discover the machine the app runs on; upsert it as a server. 200 or 500 |
 | POST | `/api/server/add` | Add a server. Body requires `hostname`. 200, 400 on duplicate |
-| PUT | `/api/server/{server_id}` | Replace a server's editable fields. 200, 404 |
+| PUT | `/api/server/{server_id}` | Update a server (partial; BR-109). 200, 404 |
 | DELETE | `/api/server/{server_id}` | Hard-delete a server. 200, 404 |
 | POST | `/api/application/add` | Add an application. Body requires `name`. 200, 400 on duplicate |
-| PUT | `/api/application/{app_id}` | Replace an application's editable fields. 200, 404 |
+| PUT | `/api/application/{app_id}` | Update an application (partial; BR-109). 200, 404 |
 | DELETE | `/api/application/{app_id}` | Hard-delete an application. 200, 404 |
 | POST | `/api/service/add` | Add a service. Body requires `server_id`, `service_name`. 200 |
-| PUT | `/api/service/{service_id}` | Replace a service's editable fields. 200, 404 |
+| PUT | `/api/service/{service_id}` | Update a service (partial; BR-109). 200, 404 |
 | DELETE | `/api/service/{service_id}` | Hard-delete a service. 200, 404 |
 | POST | `/api/dependency/add` | Add a dependency edge. Requires `source_service_id`, `target_service_id`. 200 |
 | GET | `/api/stats` | Aggregate counts and breakdowns. 200 |
-| GET | `/api/discovery/history` | Last 20 discovery runs. Currently always 500 (ISS-101) |
+| GET | `/api/discovery/history` | Last 20 discovery runs, newest first. 200 (ISS-101 fixed 2026-07-31) |
 | GET | `/api/export/{table}` | CSV download of one of the four inventory tables. 200, 400 |
 | POST | `/api/import/{table}` | CSV upload into `servers` or `applications`. 200, 400 |
 

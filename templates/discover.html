@@ -31,14 +31,13 @@
                 <h5><i class="bi bi-cloud-upload"></i> Import from CSV</h5>
             </div>
             <div class="card-body">
-                <p>Import servers, applications, or services from a CSV file.</p>
+                <p>Import servers or applications from a CSV file.</p>
                 <form id="importForm" enctype="multipart/form-data">
                     <div class="mb-3">
                         <label class="form-label">Select Type</label>
                         <select class="form-control" id="importType">
                             <option value="servers">Servers</option>
                             <option value="applications">Applications</option>
-                            <option value="services">Services</option>
                         </select>
                     </div>
                     <div class="mb-3">
@@ -99,14 +98,12 @@
                         <tr>
                             <th>Timestamp</th>
                             <th>Type</th>
-                            <th>Source</th>
-                            <th>Items Discovered</th>
-                            <th>Status</th>
+                            <th>Server</th>
                         </tr>
                     </thead>
                     <tbody id="discoveryHistory">
                         <tr>
-                            <td colspan="5" class="text-center text-muted">No discovery history available</td>
+                            <td colspan="3" class="text-center text-muted">No discovery history available</td>
                         </tr>
                     </tbody>
                 </table>
@@ -153,12 +150,12 @@ document.getElementById('importForm').addEventListener('submit', function(e) {
     const importType = document.getElementById('importType').value;
 
     formData.append('file', fileInput.files[0]);
-    formData.append('type', importType);
 
     const resultDiv = document.getElementById('importResult');
     resultDiv.innerHTML = '<div class="alert alert-info">Importing data...</div>';
 
-    fetch('/api/import/csv', {
+    // The API takes the target table in the path: /api/import/<table> (ISS-103)
+    fetch(`/api/import/${importType}`, {
         method: 'POST',
         body: formData
     })
@@ -169,7 +166,7 @@ document.getElementById('importForm').addEventListener('submit', function(e) {
                 <div class="alert alert-success">
                     <strong>Import Complete!</strong><br>
                     Imported: ${data.imported} items<br>
-                    ${data.errors > 0 ? `Errors: ${data.errors}` : ''}
+                    ${data.errors.length > 0 ? `Errors: ${data.errors.length}` : ''}
                 </div>
             `;
             loadDiscoveryHistory();
@@ -200,15 +197,9 @@ function loadDiscoveryHistory() {
             if (data.history && data.history.length > 0) {
                 tbody.innerHTML = data.history.map(item => `
                     <tr>
-                        <td>${item.created_at}</td>
+                        <td>${item.discovered_at}</td>
                         <td>${item.discovery_type}</td>
-                        <td>${item.source}</td>
-                        <td>${item.items_discovered}</td>
-                        <td>
-                            <span class="badge bg-${item.status === 'success' ? 'success' : 'warning'}">
-                                ${item.status}
-                            </span>
-                        </td>
+                        <td><a href="/server/${item.server_id}">Server #${item.server_id}</a></td>
                     </tr>
                 `).join('');
             }
