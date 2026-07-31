@@ -1,0 +1,613 @@
+# The authoritative interface contract for the cmdb module (REP-0002).
+# Mined from app.py on 2026-07-31; every shape below was read from the code,
+# not designed. Oddities (200-for-create, mixed error envelopes, a dead
+# endpoint) are recorded as built, because regeneration must reproduce the
+# wire, not improve it. The table in overview.md is a human summary of this
+# file; where the two disagree, this file wins.
+openapi: 3.0.3
+info:
+  title: cmdb
+  version: 0.1.0
+  description: >
+    JSON API of Simple CMDB. All successes are HTTP 200 (ADR-103). Most
+    error bodies are {"success": false, "error": string}; the export/import
+    guards return {"error": string} without a success key. Handlers wrap
+    their work in a broad try/except, so unexpected failures become 500
+    with the raw exception string in "error". Endpoints that read a JSON
+    body require Content-Type application/json; without it Flask returns
+    its default HTML 415 page before the handler runs.
+
+paths:
+  /api/discover/local:
+    post:
+      summary: Discover the local machine and upsert it as a server
+      description: >
+        No request body. Inspects the host the Flask process runs on,
+        upserts servers by hostname (destructively; see ISS-104), and
+        appends a discovery_history row. Creates no services rows.
+      responses:
+        '200':
+          description: Discovery stored
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, data]
+                properties:
+                  success: { type: boolean, enum: [true] }
+                  data:
+                    type: object
+                    properties:
+                      system:
+                        type: object
+                        description: >
+                          hostname, ip_address, os_type, os_version,
+                          cpu_cores, memory_gb, disk_gb, platform,
+                          architecture, processor (app.py:344-355)
+                      services_count: { type: integer }
+                      connections_count: { type: integer }
+        '500':
+          description: Any failure (e.g. psutil permissions)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+
+  /api/server/add:
+    post:
+      summary: Add a server
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [hostname]
+              properties:
+                hostname: { type: string }
+                ip_address: { type: string }
+                os_type: { type: string }
+                os_version: { type: string }
+                environment: { type: string, default: production }
+                owner: { type: string }
+                notes: { type: string }
+      responses:
+        '200':
+          description: Created (200, not 201; ADR-103). status is set to active.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, server_id]
+                properties:
+                  success: { type: boolean, enum: [true] }
+                  server_id: { type: integer }
+        '400':
+          description: Hostname already exists (BR-101)
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ErrorEnvelope'
+                example: { success: false, error: Server already exists }
+        '500':
+          description: >
+            Unexpected failure, including a missing hostname key, which
+            surfaces as {"success": false, "error": "'hostname'"}
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+
+  /api/server/{server_id}:
+    put:
+      summary: Replace a server's editable fields
+      description: >
+        Full replacement, not a patch: every field below is written from
+        the body, so omitted fields become null (ASM-101). Omitting
+        hostname 500s on the NOT NULL constraint. cpu_cores, memory_gb,
+        disk_gb, last_seen are not editable here.
+      parameters:
+        - { name: server_id, in: path, required: true, schema: { type: integer } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                hostname: { type: string }
+                ip_address: { type: string }
+                os_type: { type: string }
+                os_version: { type: string }
+                environment: { type: string }
+                status: { type: string }
+                owner: { type: string }
+                location: { type: string }
+                notes: { type: string }
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SuccessEnvelope' }
+        '404':
+          description: No such server (BR-104)
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ErrorEnvelope'
+                example: { success: false, error: Server not found }
+        '500':
+          description: Unexpected failure
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+    delete:
+      summary: Hard-delete a server
+      description: >
+        Removes the row only. Services, dependencies, and history that
+        reference it are NOT cleaned up despite the schema's declared
+        cascades (ISS-102, BR-108).
+      parameters:
+        - { name: server_id, in: path, required: true, schema: { type: integer } }
+      responses:
+        '200':
+          description: Deleted
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SuccessEnvelope' }
+        '404':
+          description: No such server
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ErrorEnvelope'
+                example: { success: false, error: Server not found }
+        '500':
+          description: Unexpected failure
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+
+  /api/application/add:
+    post:
+      summary: Add an application
+      description: >
+        repository_url and documentation_url exist in the table but are
+        not settable through the API.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string }
+                version: { type: string }
+                type: { type: string }
+                language: { type: string }
+                owner: { type: string }
+                criticality: { type: string, default: medium }
+                notes: { type: string }
+      responses:
+        '200':
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, application_id]
+                properties:
+                  success: { type: boolean, enum: [true] }
+                  application_id: { type: integer }
+        '400':
+          description: Name already exists (BR-102)
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ErrorEnvelope'
+                example: { success: false, error: Application already exists }
+        '500':
+          description: Unexpected failure
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+
+  /api/application/{app_id}:
+    put:
+      summary: Replace an application's editable fields
+      description: Full replacement; omitted fields become null (ASM-101).
+      parameters:
+        - { name: app_id, in: path, required: true, schema: { type: integer } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: { type: string }
+                version: { type: string }
+                type: { type: string }
+                language: { type: string }
+                criticality: { type: string }
+                owner: { type: string }
+                notes: { type: string }
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SuccessEnvelope' }
+        '404':
+          description: No such application
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ErrorEnvelope'
+                example: { success: false, error: Application not found }
+        '500':
+          description: Unexpected failure
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+    delete:
+      summary: Hard-delete an application
+      description: >
+        services.application_id is NOT nulled out despite the declared
+        ON DELETE SET NULL (ISS-102).
+      parameters:
+        - { name: app_id, in: path, required: true, schema: { type: integer } }
+      responses:
+        '200':
+          description: Deleted
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SuccessEnvelope' }
+        '404':
+          description: No such application
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ErrorEnvelope'
+                example: { success: false, error: Application not found }
+        '500':
+          description: Unexpected failure
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+
+  /api/service/add:
+    post:
+      summary: Add a service
+      description: >
+        server_id is required by the code (KeyError -> 500 if absent) but
+        its existence is not checked: a dangling server_id is accepted
+        (ISS-102). No duplicate detection of any kind.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [server_id, service_name]
+              properties:
+                server_id: { type: integer }
+                application_id: { type: integer, nullable: true }
+                service_name: { type: string }
+                port: { type: integer }
+                protocol: { type: string, default: tcp }
+                status: { type: string, default: running }
+      responses:
+        '200':
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, service_id]
+                properties:
+                  success: { type: boolean, enum: [true] }
+                  service_id: { type: integer }
+        '500':
+          description: >
+            Unexpected failure, including missing required keys
+            ({"success": false, "error": "'server_id'"})
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+
+  /api/service/{service_id}:
+    put:
+      summary: Replace a service's editable fields
+      description: >
+        Full replacement; omitted fields become null (ASM-101).
+        server_id and application_id cannot be changed here.
+      parameters:
+        - { name: service_id, in: path, required: true, schema: { type: integer } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                service_name: { type: string }
+                port: { type: integer }
+                protocol: { type: string }
+                status: { type: string }
+                process_name: { type: string }
+                start_command: { type: string }
+                config_file: { type: string }
+                log_file: { type: string }
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SuccessEnvelope' }
+        '404':
+          description: No such service
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ErrorEnvelope'
+                example: { success: false, error: Service not found }
+        '500':
+          description: Unexpected failure
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+    delete:
+      summary: Hard-delete a service
+      parameters:
+        - { name: service_id, in: path, required: true, schema: { type: integer } }
+      responses:
+        '200':
+          description: Deleted
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SuccessEnvelope' }
+        '404':
+          description: No such service
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ErrorEnvelope'
+                example: { success: false, error: Service not found }
+        '500':
+          description: Unexpected failure
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+
+  /api/dependency/add:
+    post:
+      summary: Add a directed dependency between two services
+      description: >
+        Neither service id is validated to exist; self-dependencies and
+        duplicates are accepted (ISS-102). port and protocol columns exist
+        on the table but are not settable here. Uniquely among the create
+        endpoints, no id is returned. There is no update or delete
+        endpoint for dependencies.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [source_service_id, target_service_id]
+              properties:
+                source_service_id: { type: integer }
+                target_service_id: { type: integer }
+                dependency_type: { type: string, default: requires }
+                description: { type: string }
+      responses:
+        '200':
+          description: Created; body carries no id
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SuccessEnvelope' }
+        '500':
+          description: Unexpected failure, including missing required keys
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+
+  /api/stats:
+    get:
+      summary: Aggregate statistics
+      description: >
+        No envelope; bare object. Group-by keys are raw column values, so
+        a null os_type groups under JSON key "null" and unvalidated
+        vocabulary variants (ASM-103) appear as distinct keys.
+      responses:
+        '200':
+          description: Statistics
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [servers, applications, services, dependencies]
+                properties:
+                  servers:
+                    type: object
+                    properties:
+                      total: { type: integer }
+                      active:
+                        type: integer
+                        description: Rows with status exactly 'active'
+                      by_os:
+                        type: object
+                        additionalProperties: { type: integer }
+                      by_env:
+                        type: object
+                        additionalProperties: { type: integer }
+                        description: Null environments are excluded
+                  applications:
+                    type: object
+                    properties:
+                      total: { type: integer }
+                      by_criticality:
+                        type: object
+                        additionalProperties: { type: integer }
+                  services:
+                    type: object
+                    properties:
+                      total: { type: integer }
+                      running:
+                        type: integer
+                        description: Rows with status exactly 'running'
+                  dependencies:
+                    type: object
+                    properties:
+                      total: { type: integer }
+
+  /api/discovery/history:
+    get:
+      summary: Last 20 discovery runs (currently broken)
+      description: >
+        As built this endpoint ALWAYS returns 500: it orders by a column
+        (created_at) that does not exist on discovery_history (ISS-101).
+        The 200 shape below is the inferred intent, mined from the code
+        around the defect, and has never been observed working. Fixing the
+        column name to discovered_at would produce it.
+      responses:
+        '200':
+          description: Intended shape; unreachable until ISS-101 is fixed
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [history]
+                properties:
+                  history:
+                    type: array
+                    maxItems: 20
+                    items:
+                      type: object
+                      properties:
+                        id: { type: integer }
+                        server_id: { type: integer }
+                        discovery_type: { type: string }
+                        data:
+                          type: string
+                          description: JSON blob, serialised as a string
+                        discovered_at: { type: string }
+        '500':
+          description: Current behaviour, on every request (Flask error page or debugger, not JSON)
+          content:
+            text/html:
+              schema: { type: string }
+
+  /api/export/{table}:
+    get:
+      summary: Download one inventory table as CSV
+      parameters:
+        - name: table
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [servers, applications, services, dependencies]
+      responses:
+        '200':
+          description: >
+            CSV attachment named {table}_export_YYYYMMDD_HHMMSS.csv. First
+            line is the column headers; a table with no rows yields an
+            empty file with no header line.
+          content:
+            text/csv:
+              schema: { type: string }
+        '400':
+          description: Table not in the whitelist (BR-105). Note the bare shape.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/BareError'
+                example: { error: Invalid table }
+
+  /api/import/{table}:
+    post:
+      summary: Upload a CSV into servers or applications
+      description: >
+        multipart/form-data with the file in field "file". Servers read
+        columns hostname, ip_address, os_type, os_version, environment,
+        owner; applications read name, version, type, language, owner.
+        Other columns are ignored. Duplicates are skipped silently
+        (BR-106). The response is success:true even if every row errored.
+      parameters:
+        - name: table
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [servers, applications]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file:
+                  type: string
+                  format: binary
+      responses:
+        '200':
+          description: Import attempted
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, imported, errors]
+                properties:
+                  success: { type: boolean, enum: [true] }
+                  imported:
+                    type: integer
+                    description: Rows actually inserted, not rows read
+                  errors:
+                    type: array
+                    items: { type: string }
+        '400':
+          description: Invalid table, or no file part. Bare shape, no success key.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/BareError'
+                examples:
+                  invalidTable: { value: { error: Invalid table } }
+                  noFile: { value: { error: No file provided } }
+
+components:
+  schemas:
+    SuccessEnvelope:
+      type: object
+      required: [success]
+      properties:
+        success: { type: boolean, enum: [true] }
+    ErrorEnvelope:
+      type: object
+      required: [success, error]
+      properties:
+        success: { type: boolean, enum: [false] }
+        error:
+          type: string
+          description: >
+            Human-readable; on 500 it is the raw exception string, which
+            leaks internals (e.g. "'server_id'" for a missing body key)
+    BareError:
+      type: object
+      required: [error]
+      properties:
+        error: { type: string }
