@@ -2,7 +2,7 @@
 id: RISK-102
 type: risk
 title: Debug mode is the default outside Docker
-status: draft
+status: active
 since: 2026-07-31
 likelihood: medium
 impact: high
