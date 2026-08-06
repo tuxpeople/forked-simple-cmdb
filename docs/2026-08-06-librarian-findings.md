@@ -116,3 +116,40 @@ It also produced one **false positive** during development, before being fixed: 
 ## Cost
 
 The mechanical pass is free and takes under a second. The reading pass consumed roughly 40,000 characters of corpus, once, and produced six findings of which four are worth acting on. That is a favourable ratio, but this tree is 38 items. The interesting question is whether it still holds at 400, and this run says nothing about that.
+
+---
+
+# Second run, same day, now scheduled and autonomous
+
+The first run above was me reading the corpus by hand. This one was the workflow: `regen-librarian --read` through OpenRouter, triggered without a person in the loop, filing into the standing issue.
+
+It found four things. One of them was mine.
+
+## It caught the operator's error in the commit that was acting on its own findings
+
+Its top finding, ranked first without prompting:
+
+> RISK-101 (active): "Likelihood lowered from high to medium on 2026-08-06."
+> Yet the status line still reads: `likelihood: "high"`
+
+Correct. Acting on the first run's findings, I rewrote RISK-101's body to explain that its high rating rested on a fact that had stopped being true, and left `likelihood: high` in the frontmatter. Prose and structure disagreed, in a file I had just carefully edited, in a commit whose entire purpose was fixing exactly this class of problem.
+
+Validation passed, because both halves are individually well formed. The mechanical pass said nothing, because it compares numbers across items and not prose against frontmatter within one. Nothing else here would ever have caught it.
+
+The gap between making that mistake and an automated system reporting it was under three hours, and no human was involved in noticing.
+
+## The other three
+
+**ASM-104 was still draft at medium confidence.** It had guessed the foreign key declarations expressed real intent; ISS-102's fix then made the system enforce exactly that. Fixing a system to match a guess is about as strong a confirmation of intent as this tree can offer, and the item sat unchanged for six days after the evidence arrived. Now active at high confidence. This is precisely the "confidence that should have moved" case REP-0006 names, found unprompted.
+
+**ASM-101's supersession understated what happened.** `supersedes` records that BR-109 replaced it, not that the author's confirmation *inverted* its central inference: replace semantics were a bug the edit modals hid, not the design ASM-101 assumed. A reader following the lineage would see a refinement where there was a reversal. Now says so.
+
+**ASM-105 described a live defect with no issue tracking it.** Filed as [#6](https://github.com/tysoncung/simple-cmdb/issues/6). The README documents `DATABASE_PATH`; the application reads `CMDB_DB`.
+
+## What this run establishes, and what it does not
+
+It **establishes** that the loop closes. An agent read the corpus on a schedule, without being asked, found a real defect a human had introduced hours earlier, ranked it first, quoted both sides, and filed it where a person would see it. Every finding proposed; none merged.
+
+It **does not** establish that this holds up over time. Two runs, one tree, thirty-eight items, and both runs happened on a day when the tree was being actively edited, which is the condition most favourable to finding recent contradictions. The failure mode REP-0006 names is noise, and noise takes weeks of quiet runs to measure. Ask again after a month of Mondays.
+
+One honest note on cost attribution: finding one exists because I made the mistake in the first place. A tool that catches errors introduced by the process it is part of is genuinely useful, and it is not the same as catching errors that would have existed anyway.
