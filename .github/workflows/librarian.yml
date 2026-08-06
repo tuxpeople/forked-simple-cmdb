@@ -6,10 +6,15 @@
 # continuously, and fastest when everyone is busy, which is exactly when nobody
 # runs a knowledge audit.
 #
-# This is the mechanical half only: arithmetic, reference counting, and dates.
-# The reading half needs a model and an API key, and is run by hand for now via
-# the `librarian` skill. What that half found on its first pass over this tree
-# is in docs/2026-08-06-librarian-findings.md, and none of it would appear here.
+# Two halves. The mechanical pass is arithmetic, reference counting, and dates:
+# free, deterministic, and it finds where to look. The reading pass ships the
+# corpus to a model, and on this tree's first run it found six things the
+# mechanical half could not see, four of which were items that were true when
+# written and had been falsified by later work. See
+# docs/2026-08-06-librarian-findings.md.
+#
+# The reading pass is best-effort. If the key is missing or the provider is
+# down, the mechanical report still files.
 #
 # It never fails the build. These are candidates for a person to read, and a
 # scheduled job that goes red on a heuristic gets muted within a fortnight.
@@ -46,8 +51,23 @@ jobs:
         id: read
         run: |
           set -o pipefail
-          npx -p regen-engineering-schema@^0.5.0 regen-librarian . | tee findings.txt
-          npx -p regen-engineering-schema@^0.5.0 regen-librarian . --json > findings.json
+          npx -p regen-engineering-schema@^0.6.0 regen-librarian . | tee findings.txt
+          npx -p regen-engineering-schema@^0.6.0 regen-librarian . --json > findings.json
+
+      - name: Read the corpus with a model
+        id: reading
+        continue-on-error: true
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          REGEN_LLM_MODEL: ${{ vars.REGEN_LLM_MODEL || 'anthropic/claude-sonnet-4.5' }}
+        run: |
+          if [ -z "$OPENROUTER_API_KEY" ]; then
+            echo "No key configured; mechanical pass only."
+            exit 0
+          fi
+          # Never echoed, never written anywhere but this step's environment.
+          npx -p regen-engineering-schema@^0.6.0 regen-librarian . --read > reading.md
+          echo "ok=true" >> "$GITHUB_OUTPUT"
 
       - name: Count what was found
         id: count
@@ -60,7 +80,7 @@ jobs:
       # A weekly issue that nobody closes becomes a stream nobody reads, which is
       # the failure mode REP-0006 names as worse than not running at all.
       - name: File or update the standing issue
-        if: steps.count.outputs.count != '0'
+        if: steps.count.outputs.count != '0' || steps.reading.outputs.ok == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           COUNT: ${{ steps.count.outputs.count }}
@@ -72,10 +92,17 @@ jobs:
             cat findings.txt
             echo '```'
             echo
-            echo "These are candidates, not defects. Structure and arithmetic found where to"
-            echo "look; whether any of it is actually wrong needs a reading pass, which is not"
-            echo "run here. See \`docs/2026-08-06-librarian-findings.md\` for what a reading pass"
-            echo "found that this half cannot see."
+            echo "Candidates, not defects. Structure and arithmetic found where to look."
+            if [ -s reading.md ]; then
+              echo
+              echo "## Reading pass"
+              echo
+              cat reading.md
+            else
+              echo
+              echo "The reading pass did not run or produced nothing, so this is the"
+              echo "mechanical half only. It is the half that finds least."
+            fi
           } > body.md
 
           existing=$(gh issue list --state open --label librarian --limit 1 --json number --jq '.[0].number // empty')
@@ -88,7 +115,7 @@ jobs:
           fi
 
       - name: Close the standing issue when the tree comes back clean
-        if: steps.count.outputs.count == '0'
+        if: steps.count.outputs.count == '0' && steps.reading.outputs.ok != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
