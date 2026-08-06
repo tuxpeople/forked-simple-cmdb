@@ -1,0 +1,31 @@
+name: contracts
+
+# The contracts in cmdb/knowledge/contracts are the specification. This runs
+# them against the implementation on every push and pull request, so a change
+# that breaks a stated behaviour is visible before it is merged. No secrets and
+# no services: the suite starts the app itself on a scratch database.
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  contracts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Python dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run the contract suite
+        run: ./verify.sh
