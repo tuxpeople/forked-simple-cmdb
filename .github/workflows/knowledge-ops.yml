@@ -1,0 +1,118 @@
+# Continuous knowledge operations: the Monitor, the Trigger, and the Gatherer.
+#
+# The Librarian has its own workflow because it reads the whole corpus and has a
+# different shape. These three share one, because they answer three parts of the
+# same question: what is decaying, is it worth rebuilding, and what did we learn
+# and never write down.
+#
+# Every one of them proposes. None of them merges anything, and none of them
+# changes what the system does. That boundary matters more the more of this runs
+# unattended, because a system that both proposes and disposes has quietly
+# become the author of the software with nobody deciding that it should.
+#
+# Never fails the build. A scheduled job that goes red on a heuristic gets muted
+# within a fortnight, and a muted job catches nothing at all.
+
+name: knowledge-ops
+
+on:
+  schedule:
+    # Thursdays, deliberately offset from the Librarian's Monday. Two reports
+    # landing together is one report nobody finishes.
+    - cron: '0 7 * * 4'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: knowledge-ops
+  cancel-in-progress: false
+
+env:
+  PKG: regen-engineering-schema@^0.7.0
+
+jobs:
+  operate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The Gatherer reads history. A shallow clone would make it report a
+          # quiet repository, which is the wrong answer arrived at confidently.
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Monitor, which module is furthest from being understood
+        run: npx -p "$PKG" regen-monitor . | tee monitor.txt
+
+      - name: Trigger, is regenerating any of it worth the cost
+        env:
+          REGEN_LLM_MODEL: ${{ vars.REGEN_LLM_MODEL || 'anthropic/claude-sonnet-4.5' }}
+        run: npx -p "$PKG" regen-trigger . | tee trigger.txt
+
+      - name: Gatherer, what changed without being written down
+        id: gather
+        continue-on-error: true
+        run: |
+          # Exits non-zero on CANNOT TELL, which is a real finding rather than a
+          # failure: it means the implementation could not be located at all.
+          npx -p "$PKG" regen-gather . > gather.txt || echo "cannot_tell=true" >> "$GITHUB_OUTPUT"
+          cat gather.txt
+
+      - name: Gatherer, read the candidates
+        continue-on-error: true
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          REGEN_LLM_MODEL: ${{ vars.REGEN_LLM_MODEL || 'anthropic/claude-sonnet-4.5' }}
+        run: |
+          if [ -z "$OPENROUTER_API_KEY" ]; then
+            echo "No key configured; candidates listed but not read."
+            exit 0
+          fi
+          if ! grep -q 'candidate(s), most likely' gather.txt; then
+            echo "No candidates to read."
+            exit 0
+          fi
+          npx -p "$PKG" regen-gather . --read > gather-read.md
+
+      - name: File or update the standing report
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          {
+            echo "Continuous knowledge operations, $(date -u +%Y-%m-%d)."
+            echo
+            echo "Proposals only. Nothing here has been agreed and nothing was changed."
+            echo
+            echo "## Monitor"
+            echo
+            echo '```'; cat monitor.txt; echo '```'
+            echo
+            echo "## Trigger"
+            echo
+            echo '```'; cat trigger.txt; echo '```'
+            echo
+            echo "## Gatherer"
+            echo
+            echo '```'; cat gather.txt; echo '```'
+            if [ -s gather-read.md ]; then
+              echo
+              echo "### What the candidates imply"
+              echo
+              cat gather-read.md
+            fi
+          } > body.md
+
+          existing=$(gh issue list --state open --label knowledge-ops --limit 1 --json number --jq '.[0].number // empty')
+          if [ -n "$existing" ]; then
+            gh issue edit "$existing" --body-file body.md
+            echo "Updated #$existing"
+          else
+            gh label create knowledge-ops --color 1d76db --description "Scheduled monitor, trigger, and gatherer report" --force || true
+            gh issue create --title "Knowledge operations: standing report" --label knowledge-ops --body-file body.md
+          fi
