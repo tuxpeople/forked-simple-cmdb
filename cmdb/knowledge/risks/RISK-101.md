@@ -4,7 +4,7 @@ type: risk
 title: No authentication on destructive endpoints
 status: active
 since: 2026-07-31
-likelihood: high
+likelihood: medium
 impact: high
 mitigation: Put the app behind authenticating reverse proxy, or bind to localhost until auth ships
 affects: [cmdb]
