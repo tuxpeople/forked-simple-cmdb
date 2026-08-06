@@ -362,7 +362,14 @@ def discover_local():
         for proc in psutil.process_iter(['pid', 'name', 'status', 'memory_percent']):
             try:
                 pinfo = proc.info
-                if pinfo['memory_percent'] > 0.1:  # Only significant processes
+                # psutil does not raise for a field it cannot read inside
+                # process_iter(attrs=...): it sets the field to None. The
+                # except clause below therefore never fires, and comparing
+                # None to a float raised TypeError, which the outer handler
+                # turned into a 500 for the whole endpoint (ISS-108). A
+                # process whose memory cannot be read is simply not
+                # significant.
+                if (pinfo['memory_percent'] or 0) > 0.1:  # Only significant processes
                     services.append({
                         'name': pinfo['name'],
                         'pid': pinfo['pid'],
@@ -850,8 +857,15 @@ def import_table(table):
         'errors': errors
     })
 
+# Schema creation runs at import, not only under __main__. Every statement is
+# CREATE TABLE IF NOT EXISTS, so this is idempotent and cheap. It matters
+# because any WSGI server (gunicorn, uwsgi) imports this module rather than
+# executing it, and would previously have served every request against a
+# database with no tables. Found by trying to run the contract suite.
+init_db()
+
+
 if __name__ == '__main__':
-    init_db()
 
     port = int(os.environ.get('PORT', 5000))
     # Debug is opt-in via FLASK_DEBUG, never the default (RISK-102): the
