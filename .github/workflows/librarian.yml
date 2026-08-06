@@ -1,0 +1,98 @@
+# The Librarian, on a schedule.
+#
+# Everything else in this repository runs on a change: contracts on push,
+# validation on pull request. This runs on nothing happening, which is the
+# point. Knowledge does not decay when someone thinks to check; it decays
+# continuously, and fastest when everyone is busy, which is exactly when nobody
+# runs a knowledge audit.
+#
+# This is the mechanical half only: arithmetic, reference counting, and dates.
+# The reading half needs a model and an API key, and is run by hand for now via
+# the `librarian` skill. What that half found on its first pass over this tree
+# is in docs/2026-08-06-librarian-findings.md, and none of it would appear here.
+#
+# It never fails the build. These are candidates for a person to read, and a
+# scheduled job that goes red on a heuristic gets muted within a fortnight.
+
+name: librarian
+
+on:
+  schedule:
+    # 07:00 UTC on Mondays. Weekly rather than nightly because this tree changes
+    # slowly; a busier one should move to nightly. Cadence is a guess either way,
+    # and REP-0006 says so.
+    - cron: '0 7 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: librarian
+  cancel-in-progress: false
+
+jobs:
+  read:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Read the corpus
+        id: read
+        run: |
+          set -o pipefail
+          npx -p regen-engineering-schema@^0.5.0 regen-librarian . | tee findings.txt
+          npx -p regen-engineering-schema@^0.5.0 regen-librarian . --json > findings.json
+
+      - name: Count what was found
+        id: count
+        run: |
+          n=$(node -e 'console.log(JSON.parse(require("fs").readFileSync("findings.json","utf8")).findings.length)')
+          echo "count=$n" >> "$GITHUB_OUTPUT"
+          echo "Found $n candidate(s)."
+
+      # One standing issue, updated in place, rather than a new issue each week.
+      # A weekly issue that nobody closes becomes a stream nobody reads, which is
+      # the failure mode REP-0006 names as worse than not running at all.
+      - name: File or update the standing issue
+        if: steps.count.outputs.count != '0'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          COUNT: ${{ steps.count.outputs.count }}
+        run: |
+          {
+            echo "Mechanical pass over the knowledge tree, $COUNT candidate(s) as of $(date -u +%Y-%m-%d)."
+            echo
+            echo '```'
+            cat findings.txt
+            echo '```'
+            echo
+            echo "These are candidates, not defects. Structure and arithmetic found where to"
+            echo "look; whether any of it is actually wrong needs a reading pass, which is not"
+            echo "run here. See \`docs/2026-08-06-librarian-findings.md\` for what a reading pass"
+            echo "found that this half cannot see."
+          } > body.md
+
+          existing=$(gh issue list --state open --label librarian --limit 1 --json number --jq '.[0].number // empty')
+          if [ -n "$existing" ]; then
+            gh issue edit "$existing" --body-file body.md
+            echo "Updated #$existing"
+          else
+            gh label create librarian --color 0e8a16 --description "Scheduled knowledge tree review" --force || true
+            gh issue create --title "Knowledge tree: standing Librarian report" --label librarian --body-file body.md
+          fi
+
+      - name: Close the standing issue when the tree comes back clean
+        if: steps.count.outputs.count == '0'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          existing=$(gh issue list --state open --label librarian --limit 1 --json number --jq '.[0].number // empty')
+          if [ -n "$existing" ]; then
+            gh issue close "$existing" --comment "Mechanical pass is clean as of $(date -u +%Y-%m-%d). This says nothing about whether the knowledge is right."
+          fi
