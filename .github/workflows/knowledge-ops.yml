@@ -31,7 +31,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  PKG: regen-engineering-schema@^0.7.0
+  PKG: regen-engineering-schema@^0.8.2
 
 jobs:
   operate:
