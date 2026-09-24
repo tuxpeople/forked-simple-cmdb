@@ -1,0 +1,295 @@
+# The logical data model this module owns. REP-0005.
+#
+# Mined from the CREATE TABLE statements in app.py rather than designed, which
+# is the brownfield case: this records what is actually stored, including the
+# parts that look like mistakes, because a regeneration that "cleaned them up"
+# would orphan every existing row.
+#
+# Version 1 with no migrations. The schema has changed over this project's life
+# and none of it was recorded, so the history genuinely does not exist and
+# inventing a chain to make the file look complete would be worse than the gap.
+# Everything from here forward gets a migration.
+version: 1
+
+description: >
+  A configuration management database: servers, the applications running on
+  them, the services that expose those applications, and the dependencies
+  between services. Single SQLite file, opened per request (ADR-101).
+
+entities:
+  server:
+    description: A physical or virtual host.
+    identity: [id]
+    fields:
+      - name: id
+        type: integer
+        nullable: false
+        description: Assigned by the database. Not stable across rediscovery, which is ISS-104.
+      - name: hostname
+        type: string
+        nullable: false
+        unique: true
+        description: >
+          The natural key, though not the identity. Compared exactly and
+          case-sensitively, so WEB01 and web01 are two servers. That falls out
+          of SQLite's default collation rather than any decision (BR-101).
+      - name: ip_address
+        type: string
+        nullable: true
+      - name: os_type
+        type: string
+        nullable: true
+      - name: os_version
+        type: string
+        nullable: true
+        description: Truncated to 50 characters by the discovery path only, and unbounded elsewhere.
+      - name: cpu_cores
+        type: integer
+        nullable: true
+      - name: memory_gb
+        type: decimal
+        nullable: true
+      - name: disk_gb
+        type: decimal
+        nullable: true
+      - name: environment
+        type: string
+        nullable: true
+        description: >
+          Intended as an enum of production, staging, development, and recorded
+          here as a string because that is what it is: no validation exists
+          (ISS-106). Typing it as an enum would claim a constraint nothing
+          enforces, which is the failure this file is meant to prevent rather
+          than commit. Promote when BR-110 leaves draft.
+      - name: status
+        type: string
+        nullable: true
+        description: Defaults to active on the API path only. Same enum caveat as environment.
+      - name: location
+        type: string
+        nullable: true
+      - name: owner
+        type: string
+        nullable: true
+      - name: notes
+        type: string
+        nullable: true
+      - name: last_seen
+        type: timestamp
+        nullable: true
+        description: Written by discovery. Never written by the CRUD path, so a hand-created server has none.
+      - name: created_at
+        type: timestamp
+        nullable: true
+      - name: updated_at
+        type: timestamp
+        nullable: true
+    invariants:
+      - Hostname is unique across all servers. Enforced by the database (BR-101).
+      - >
+        A server created through CSV import has a null environment, while one
+        created through the JSON API defaults to production (BR-103). A row's
+        provenance therefore changes what it contains, and nothing records which
+        path created it.
+
+  application:
+    description: A deployed piece of software, independent of where it runs.
+    identity: [id]
+    fields:
+      - name: id
+        type: integer
+        nullable: false
+      - name: name
+        type: string
+        nullable: false
+        unique: true
+        description: Exact and case-sensitive, as with hostname (BR-102).
+      - name: version
+        type: string
+        nullable: true
+      - name: type
+        type: string
+        nullable: true
+      - name: language
+        type: string
+        nullable: true
+      - name: repository_url
+        type: string
+        nullable: true
+      - name: documentation_url
+        type: string
+        nullable: true
+      - name: owner
+        type: string
+        nullable: true
+      - name: criticality
+        type: string
+        nullable: true
+        description: Intended as low, medium, high, critical. Unvalidated, as above.
+      - name: notes
+        type: string
+        nullable: true
+      - name: created_at
+        type: timestamp
+        nullable: true
+      - name: updated_at
+        type: timestamp
+        nullable: true
+    invariants:
+      - Name is unique across all applications. Enforced by the database (BR-102).
+
+  service:
+    description: "A running instance: an application, on a server, on a port."
+    identity: [id]
+    fields:
+      - name: id
+        type: integer
+        nullable: false
+      - name: server_id
+        type: integer
+        nullable: true
+        description: >
+          Nullable in the schema, though a service without a server is
+          meaningless. Nothing prevents one and nothing has ever created one.
+      - name: application_id
+        type: integer
+        nullable: true
+        description: Genuinely optional; a service can exist before anyone records what it runs.
+      - name: service_name
+        type: string
+        nullable: false
+      - name: port
+        type: integer
+        nullable: true
+      - name: protocol
+        type: string
+        nullable: true
+        description: Defaults to tcp on the API path. Unvalidated.
+      - name: status
+        type: string
+        nullable: true
+        description: Defaults to running on the API path. Unvalidated.
+      - name: process_name
+        type: string
+        nullable: true
+      - name: start_command
+        type: string
+        nullable: true
+      - name: config_file
+        type: string
+        nullable: true
+      - name: log_file
+        type: string
+        nullable: true
+      - name: created_at
+        type: timestamp
+        nullable: true
+      - name: updated_at
+        type: timestamp
+        nullable: true
+    invariants:
+      - >
+        Nothing prevents two services claiming the same port on the same server.
+        Whether that should be allowed has never been decided, and the absence
+        of a constraint is not evidence either way.
+
+  dependency:
+    description: A directed edge between two services.
+    identity: [id]
+    fields:
+      - name: id
+        type: integer
+        nullable: false
+      - name: source_service_id
+        type: integer
+        nullable: true
+      - name: target_service_id
+        type: integer
+        nullable: true
+      - name: dependency_type
+        type: string
+        nullable: true
+        description: Defaults to requires on the API path. Unvalidated.
+      - name: port
+        type: integer
+        nullable: true
+      - name: protocol
+        type: string
+        nullable: true
+      - name: description
+        type: string
+        nullable: true
+      - name: created_at
+        type: timestamp
+        nullable: true
+    invariants:
+      - >
+        Nothing prevents a service depending on itself, or two identical edges
+        existing between the same pair. Neither has been decided.
+
+  discovery_history:
+    description: An append-only audit trail of discovery runs.
+    identity: [id]
+    fields:
+      - name: id
+        type: integer
+        nullable: false
+      - name: server_id
+        type: integer
+        nullable: true
+      - name: discovery_type
+        type: string
+        nullable: true
+      - name: data
+        type: json
+        nullable: true
+        description: >
+          A JSON blob of system facts, at most 20 processes and the listening
+          sockets. Stored as text, so nothing validates its shape and the shape
+          is whatever the code emitted on the day (BR-107).
+      - name: discovered_at
+        type: timestamp
+        nullable: true
+        description: >
+          The timestamp column. Named discovered_at and not created_at, which
+          is what ISS-101 got wrong and 500ed on for the life of the endpoint.
+    invariants:
+      - Rows are never updated or deleted except by cascade. Nothing enforces this; it is how the code behaves.
+
+relationships:
+  - from: service
+    to: server
+    cardinality: many-to-one
+    optional: true
+    on_delete: cascade
+    description: >
+      Declared from the start and inert until 2026-07-31, because SQLite ignores
+      foreign key clauses unless PRAGMA foreign_keys = ON is issued per
+      connection and it never was (ISS-102). The declaration was the only
+      surviving record that anyone intended this, which is precisely why
+      recording intent here is worth doing.
+
+  - from: service
+    to: application
+    cardinality: many-to-one
+    optional: true
+    on_delete: set-null
+    description: Deleting an application orphans nothing; its services survive and forget it.
+
+  - from: dependency
+    to: service
+    cardinality: many-to-one
+    optional: true
+    on_delete: cascade
+    description: >
+      Applies to both source_service_id and target_service_id, so deleting
+      either end removes the edge.
+
+  - from: discovery_history
+    to: server
+    cardinality: many-to-one
+    optional: true
+    on_delete: cascade
+    description: >
+      Now that this executes, it is also how rediscovery destroys history:
+      INSERT OR REPLACE deletes the server row, which cascades. See issue #4.

@@ -1,0 +1,18 @@
+module: cmdb
+stack: python
+knowledge_version: ef73949
+generated_by: manual-fix
+generated_at: 2026-07-31
+contracts_passed: [CT-101, CT-102, CT-103, CT-104, CT-105, CT-106, CT-107, CT-108, CT-109]
+drift: none
+# Where this module's code actually lives. Without this, every tool that
+# reasons about implementation falls back to assuming the module directory,
+# which here contains only knowledge, so all of them silently see nothing.
+implementation_paths: [app.py, demo_data.py, templates, Dockerfile, docker-compose.yml, requirements.txt]
+last_regeneration:
+  at: 2026-07-31
+  model: claude-fable-5
+  result: pass
+  contracts_passed: 9
+  contracts_total: 9
+  guesses: 19

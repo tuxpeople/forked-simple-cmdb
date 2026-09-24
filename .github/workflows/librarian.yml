@@ -1,0 +1,125 @@
+# The Librarian, on a schedule.
+#
+# Everything else in this repository runs on a change: contracts on push,
+# validation on pull request. This runs on nothing happening, which is the
+# point. Knowledge does not decay when someone thinks to check; it decays
+# continuously, and fastest when everyone is busy, which is exactly when nobody
+# runs a knowledge audit.
+#
+# Two halves. The mechanical pass is arithmetic, reference counting, and dates:
+# free, deterministic, and it finds where to look. The reading pass ships the
+# corpus to a model, and on this tree's first run it found six things the
+# mechanical half could not see, four of which were items that were true when
+# written and had been falsified by later work. See
+# docs/2026-08-06-librarian-findings.md.
+#
+# The reading pass is best-effort. If the key is missing or the provider is
+# down, the mechanical report still files.
+#
+# It never fails the build. These are candidates for a person to read, and a
+# scheduled job that goes red on a heuristic gets muted within a fortnight.
+
+name: librarian
+
+on:
+  schedule:
+    # 07:00 UTC on Mondays. Weekly rather than nightly because this tree changes
+    # slowly; a busier one should move to nightly. Cadence is a guess either way,
+    # and REP-0006 says so.
+    - cron: '0 7 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: librarian
+  cancel-in-progress: false
+
+jobs:
+  read:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Read the corpus
+        id: read
+        run: |
+          set -o pipefail
+          npx -p regen-engineering-schema@^0.8.2 regen-librarian . | tee findings.txt
+          npx -p regen-engineering-schema@^0.8.2 regen-librarian . --json > findings.json
+
+      - name: Read the corpus with a model
+        id: reading
+        continue-on-error: true
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          REGEN_LLM_MODEL: ${{ vars.REGEN_LLM_MODEL || 'anthropic/claude-sonnet-4.5' }}
+        run: |
+          if [ -z "$OPENROUTER_API_KEY" ]; then
+            echo "No key configured; mechanical pass only."
+            exit 0
+          fi
+          # Never echoed, never written anywhere but this step's environment.
+          npx -p regen-engineering-schema@^0.8.2 regen-librarian . --read > reading.md
+          echo "ok=true" >> "$GITHUB_OUTPUT"
+
+      - name: Count what was found
+        id: count
+        run: |
+          n=$(node -e 'console.log(JSON.parse(require("fs").readFileSync("findings.json","utf8")).findings.length)')
+          echo "count=$n" >> "$GITHUB_OUTPUT"
+          echo "Found $n candidate(s)."
+
+      # One standing issue, updated in place, rather than a new issue each week.
+      # A weekly issue that nobody closes becomes a stream nobody reads, which is
+      # the failure mode REP-0006 names as worse than not running at all.
+      - name: File or update the standing issue
+        if: steps.count.outputs.count != '0' || steps.reading.outputs.ok == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          COUNT: ${{ steps.count.outputs.count }}
+        run: |
+          {
+            echo "Mechanical pass over the knowledge tree, $COUNT candidate(s) as of $(date -u +%Y-%m-%d)."
+            echo
+            echo '```'
+            cat findings.txt
+            echo '```'
+            echo
+            echo "Candidates, not defects. Structure and arithmetic found where to look."
+            if [ -s reading.md ]; then
+              echo
+              echo "## Reading pass"
+              echo
+              cat reading.md
+            else
+              echo
+              echo "The reading pass did not run or produced nothing, so this is the"
+              echo "mechanical half only. It is the half that finds least."
+            fi
+          } > body.md
+
+          existing=$(gh issue list --state open --label librarian --limit 1 --json number --jq '.[0].number // empty')
+          if [ -n "$existing" ]; then
+            gh issue edit "$existing" --body-file body.md
+            echo "Updated #$existing"
+          else
+            gh label create librarian --color 0e8a16 --description "Scheduled knowledge tree review" --force || true
+            gh issue create --title "Knowledge tree: standing Librarian report" --label librarian --body-file body.md
+          fi
+
+      - name: Close the standing issue when the tree comes back clean
+        if: steps.count.outputs.count == '0' && steps.reading.outputs.ok != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          existing=$(gh issue list --state open --label librarian --limit 1 --json number --jq '.[0].number // empty')
+          if [ -n "$existing" ]; then
+            gh issue close "$existing" --comment "Mechanical pass is clean as of $(date -u +%Y-%m-%d). This says nothing about whether the knowledge is right."
+          fi

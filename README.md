@@ -1,6 +1,7 @@
 # Simple CMDB - Configuration Management Database
 
-> This fork keeps local changes on the `custom` branch for easy rebasing on upstream `main`.
+> This fork keeps local changes on `custom`. Keep `main` synced with upstream,
+> then merge `main` into `custom` to incorporate upstream updates.
 
 A lightweight, SQLite-based CMDB (Configuration Management Database) with a web interface for tracking servers, applications, services, and their dependencies.
 
@@ -184,7 +185,9 @@ Environment variables:
 - `FLASK_DEBUG` - Enable Flask debug mode (`true`/`1`/`yes`)
 - `SECRET_KEY` - Flask session secret (set in production)
 - `API_TOKENS` - Comma-separated API tokens; enables auth on `/api/*`
-- `DATABASE_PATH` - Custom database location (default: cmdb.db)
+- `DATABASE_PATH` - Custom database location; takes precedence over `CMDB_DB` (default: cmdb.db)
+- `CMDB_DB` - Upstream-compatible database location, used when `DATABASE_PATH` is unset
+- `CMDB_HOST` - Listen address (default: `127.0.0.1`; Docker uses `0.0.0.0`)
 - `PORT` - Web server port (default: 5000)
 
 ## Screenshots
