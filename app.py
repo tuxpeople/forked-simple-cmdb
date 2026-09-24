@@ -16,6 +16,7 @@ import platform
 from typing import Dict, List, Optional
 import csv
 import io
+import math
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'cmdb-secret-key-change-in-production'
@@ -474,12 +475,21 @@ def update_server(server_id):
     """
     data = request.json or {}
 
+    for field, types in [('cpu_cores', (int,)), ('memory_gb', (int, float))]:
+        value = data.get(field)
+        if value is not None and (
+            isinstance(value, bool) or not isinstance(value, types)
+            or value < 0 or (isinstance(value, float) and not math.isfinite(value))
+        ):
+            return jsonify({'success': False, 'error': f'Invalid {field}'}), 400
+
     conn = get_db()
     c = conn.cursor()
 
     try:
         allowed = ['hostname', 'ip_address', 'os_type', 'os_version',
-                   'environment', 'status', 'owner', 'location', 'notes']
+                   'environment', 'status', 'owner', 'location', 'notes',
+                   'cpu_cores', 'memory_gb']
         updates = {field: data[field] for field in allowed if field in data}
 
         set_clause = ', '.join(

@@ -106,8 +106,9 @@ paths:
         Partial update (BR-109, CT-108): only fields present in the body
         are written; omitted fields keep their values and can never be
         nulled by omission. Unknown keys are ignored. updated_at always
-        advances. cpu_cores, memory_gb, disk_gb, last_seen are not
-        editable here.
+        advances. cpu_cores and memory_gb may be set to non-negative numbers
+        (integer cores, finite memory) or cleared with null. disk_gb and
+        last_seen are not editable here.
       parameters:
         - { name: server_id, in: path, required: true, schema: { type: integer } }
       requestBody:
@@ -121,6 +122,8 @@ paths:
                 ip_address: { type: string }
                 os_type: { type: string }
                 os_version: { type: string }
+                cpu_cores: { type: integer, minimum: 0, nullable: true }
+                memory_gb: { type: number, minimum: 0, nullable: true }
                 environment: { type: string }
                 status: { type: string }
                 owner: { type: string }
@@ -132,6 +135,11 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/SuccessEnvelope' }
+        '400':
+          description: Invalid CPU core count or memory value
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorEnvelope' }
         '404':
           description: No such server (BR-104)
           content:

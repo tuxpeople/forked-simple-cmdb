@@ -131,6 +131,12 @@ curl -X POST http://localhost:5000/api/server/add \
 curl http://localhost:5000/api/export/servers > servers.csv
 ```
 
+Server detail pages display CPU cores and memory (GB), including values collected
+by discovery. Both fields can be changed in the Edit dialog; clearing an input
+removes the value. `PUT /api/server/<id>` accepts `cpu_cores` (a non-negative
+integer) and `memory_gb` (a finite non-negative number). Omitted fields are
+preserved, explicit `null` clears them, and invalid values return HTTP 400.
+
 ## Discovery Scripts
 
 ### Linux Discovery
