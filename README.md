@@ -185,10 +185,24 @@ Environment variables:
 - `FLASK_DEBUG` - Enable Flask debug mode (`true`/`1`/`yes`)
 - `SECRET_KEY` - Flask session secret (set in production)
 - `API_TOKENS` - Comma-separated API tokens; enables auth on `/api/*`
-- `DATABASE_PATH` - Custom database location; takes precedence over `CMDB_DB` (default: cmdb.db)
-- `CMDB_DB` - Upstream-compatible database location, used when `DATABASE_PATH` is unset
+- `CMDB_DB` - SQLite database location (default: `cmdb.db` in the working directory)
 - `CMDB_HOST` - Listen address (default: `127.0.0.1`; Docker uses `0.0.0.0`)
 - `PORT` - Web server port (default: 5000)
+
+### Upgrading to v1.0.0
+
+`DATABASE_PATH` is no longer supported. Before upgrading, rename it to
+`CMDB_DB` in your deployment, keeping the same database path and volume mount.
+For example, replace `DATABASE_PATH=/app/data/cmdb.db` with
+`CMDB_DB=/app/data/cmdb.db`. No database migration is required.
+
+If only `DATABASE_PATH` remains set, it is ignored and the application uses
+the default `cmdb.db`, which may open or create a different database.
+
+This release also includes the upstream updates merged into `custom`.
+Direct Python launches now listen on `127.0.0.1` by default; set
+`CMDB_HOST=0.0.0.0` if remote access is required. The Docker image and Compose
+configuration already set this value.
 
 ## Screenshots
 

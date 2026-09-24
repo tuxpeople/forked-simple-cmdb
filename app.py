@@ -24,7 +24,7 @@ app.config['SECRET_KEY'] = os.environ.get(
 )
 
 # Database setup
-DB_PATH = os.environ.get('DATABASE_PATH', os.environ.get('CMDB_DB', 'cmdb.db'))
+DB_PATH = os.environ.get('CMDB_DB', 'cmdb.db')
 API_TOKENS = {
     token.strip()
     for token in os.environ.get('API_TOKENS', '').split(',')

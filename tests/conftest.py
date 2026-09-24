@@ -9,7 +9,7 @@ def _load_app(tmp_path, monkeypatch, api_tokens=None):
     repo_root = Path(__file__).resolve().parents[1]
     if str(repo_root) not in sys.path:
         sys.path.insert(0, str(repo_root))
-    monkeypatch.setenv('DATABASE_PATH', str(tmp_path / 'test.db'))
+    monkeypatch.setenv('CMDB_DB', str(tmp_path / 'test.db'))
     monkeypatch.setenv('SECRET_KEY', 'test-secret')
     if api_tokens is None:
         monkeypatch.delenv('API_TOKENS', raising=False)
