@@ -43,6 +43,14 @@
                         <td>{{ server.os_type or 'N/A' }} {{ server.os_version or '' }}</td>
                     </tr>
                     <tr>
+                        <th>CPU Cores</th>
+                        <td>{{ server.cpu_cores if server.cpu_cores is not none else 'N/A' }}</td>
+                    </tr>
+                    <tr>
+                        <th>Memory (GB)</th>
+                        <td>{{ server.memory_gb if server.memory_gb is not none else 'N/A' }}</td>
+                    </tr>
+                    <tr>
                         <th>Environment</th>
                         <td>
                             <span class="badge bg-{{ 'danger' if server.environment == 'production' else 'warning' if server.environment == 'staging' else 'info' }}">
@@ -168,6 +176,14 @@
                         <input type="text" class="form-control" id="edit_os_version" value="{{ server.os_version or '' }}">
                     </div>
                     <div class="mb-3">
+                        <label class="form-label" for="edit_cpu_cores">CPU Cores</label>
+                        <input type="number" class="form-control" id="edit_cpu_cores" min="0" step="1" value="{{ server.cpu_cores if server.cpu_cores is not none else '' }}">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label" for="edit_memory_gb">Memory (GB)</label>
+                        <input type="number" class="form-control" id="edit_memory_gb" min="0" step="any" value="{{ server.memory_gb if server.memory_gb is not none else '' }}">
+                    </div>
+                    <div class="mb-3">
                         <label class="form-label">Environment</label>
                         <select class="form-control" id="edit_environment">
                             <option value="production" {% if server.environment == 'production' %}selected{% endif %}>Production</option>
@@ -218,12 +234,15 @@ function editServer(id) {
 }
 
 function saveServerChanges() {
+    if (!document.getElementById('editServerForm').reportValidity()) return;
     const id = document.getElementById('edit_server_id').value;
     const data = {
         hostname: document.getElementById('edit_hostname').value,
         ip_address: document.getElementById('edit_ip_address').value,
         os_type: document.getElementById('edit_os_type').value,
         os_version: document.getElementById('edit_os_version').value,
+        cpu_cores: document.getElementById('edit_cpu_cores').value === '' ? null : Number(document.getElementById('edit_cpu_cores').value),
+        memory_gb: document.getElementById('edit_memory_gb').value === '' ? null : Number(document.getElementById('edit_memory_gb').value),
         environment: document.getElementById('edit_environment').value,
         status: document.getElementById('edit_status').value,
         owner: document.getElementById('edit_owner').value,

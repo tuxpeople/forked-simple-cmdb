@@ -148,6 +148,12 @@ same payload is idempotent and returns `success`, `server_id`, and `action`
 (`created` or `updated`). On updates, omitted optional server fields are left
 unchanged; include a field with `null` to clear it.
 
+Server detail pages display CPU cores and memory (GB), including values collected
+by discovery. Both fields can be changed in the Edit dialog; clearing an input
+removes the value. `PUT /api/server/<id>` accepts `cpu_cores` (a non-negative
+integer) and `memory_gb` (a finite non-negative number). Omitted fields are
+preserved, explicit `null` clears them, and invalid values return HTTP 400.
+
 ## Discovery Scripts
 
 ### Linux Discovery

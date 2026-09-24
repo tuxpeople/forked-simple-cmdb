@@ -29,3 +29,6 @@ jobs:
 
       - name: Run the contract suite
         run: ./verify.sh
+
+      - name: Test server hardware fields
+        run: python -m unittest discover -s tests -p test_server_hardware.py
