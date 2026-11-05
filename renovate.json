@@ -1,0 +1,7 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["github>tuxpeople/shared//renovate/renovate.json5"],
+  "description": "Fork: only fork-only files are updated, everything else comes from upstream (merge main into custom)",
+  "baseBranchPatterns": ["custom"],
+  "includePaths": [".github/workflows/ci.yml"]
+}
